@@ -1,0 +1,128 @@
+name: 단속 카메라 데이터 자동 업데이트
+
+on:
+  # 매월 1일 오전 3시 (한국 시간 기준 낮 12시) 자동 실행
+  schedule:
+    - cron: "0 18 1 * *"   # UTC 18:00 = KST 03:00 + 1일 → 매월 1일 KST 정오
+
+  # GitHub 웹에서 수동 실행 가능 (Actions 탭 → Run workflow)
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 의존 패키지 설치
+        run: pip install requests
+
+      # ──────────────────────────────────────────────────────
+      # data.go.kr 공공데이터 API로 단속카메라 데이터 다운로드
+      # 서비스 키: GitHub → Settings → Secrets → PUBLIC_DATA_API_KEY
+      # ──────────────────────────────────────────────────────
+      - name: 단속 카메라 데이터 다운로드
+        env:
+          PUBLIC_DATA_API_KEY: ${{ secrets.PUBLIC_DATA_API_KEY }}
+        run: |
+          python3 - <<'EOF'
+          import os, requests, sys
+
+          key = os.environ.get("PUBLIC_DATA_API_KEY", "").strip()
+          if not key:
+              print("⚠️  PUBLIC_DATA_API_KEY 미설정 — 스킵 (기존 SpeedCameras.json 유지)")
+              sys.exit(0)
+
+          # 도로교통공단 고정식단속카메라 파일데이터 다운로드
+          # data.go.kr → 파일 다운로드 형식 (CSV)
+          url = (
+              "https://apis.data.go.kr/B552061/ROADCCTV/getRestAreaCamera"
+              f"?serviceKey={key}&numOfRows=20000&pageNo=1&type=json"
+          )
+          print(f"다운로드 중: {url[:80]}...")
+          try:
+              r = requests.get(url, timeout=60)
+              r.raise_for_status()
+          except Exception as e:
+              print(f"❌ 다운로드 실패: {e}")
+              sys.exit(0)   # 실패해도 기존 데이터 유지
+
+          # 응답이 JSON API 형식인 경우 CSV 변환 없이 바로 파싱
+          try:
+              data = r.json()
+              items = (
+                  data.get("response", {})
+                      .get("body", {})
+                      .get("items", {})
+                      .get("item", [])
+              )
+              if not items:
+                  print("⚠️  카메라 데이터 없음 — 기존 유지")
+                  sys.exit(0)
+
+              import json
+              cameras = []
+              for it in items:
+                  try:
+                      lat = float(it.get("latitude") or it.get("lat") or it.get("위도") or 0)
+                      lng = float(it.get("longitude") or it.get("lng") or it.get("경도") or 0)
+                      if not (33.0 <= lat <= 38.5 and 124.5 <= lng <= 130.5):
+                          continue
+                      limit = int(float(it.get("speedLimit") or it.get("제한속도") or 60))
+                      cam_type_raw = str(it.get("cameraType") or it.get("단속유형") or "")
+                      if "구간" in cam_type_raw:
+                          cam_type = "구간단속"
+                      elif "이동" in cam_type_raw:
+                          cam_type = "이동식"
+                      else:
+                          cam_type = "고정식"
+                      cameras.append({"lat": round(lat, 6), "lng": round(lng, 6),
+                                      "limit": limit, "type": cam_type})
+                  except Exception:
+                      continue
+
+              output = {
+                  "_note": f"총 {len(cameras)}개 단속카메라 | data.go.kr 도로교통공단 | GitHub Actions 자동 업데이트",
+                  "cameras": cameras
+              }
+              with open("TView/Resources/SpeedCameras.json", "w", encoding="utf-8") as f:
+                  json.dump(output, f, ensure_ascii=False, indent=2)
+              print(f"✅ {len(cameras)}개 카메라 저장 완료")
+
+          except Exception as e:
+              # JSON이 아니면 CSV로 처리 시도
+              print(f"JSON 파싱 실패 ({e}), CSV로 재시도...")
+              with open("cameras_download.csv", "wb") as f:
+                  f.write(r.content)
+              import subprocess
+              result = subprocess.run(
+                  ["python3", "scripts/convert_cameras.py",
+                   "cameras_download.csv", "TView/Resources/SpeedCameras.json"],
+                  capture_output=True, text=True
+              )
+              print(result.stdout)
+              if result.returncode != 0:
+                  print(f"❌ CSV 변환 실패: {result.stderr}")
+                  sys.exit(0)
+          EOF
+
+      - name: 변경 사항 커밋 및 푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add TView/Resources/SpeedCameras.json
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 스킵"
+          else
+            COUNT=$(python3 -c "import json; d=json.load(open('TView/Resources/SpeedCameras.json')); print(len(d['cameras']))")
+            git commit -m "chore: 단속 카메라 데이터 업데이트 (${COUNT}개) [skip ci]"
+            git push
+            echo "✅ 업데이트 완료"
+          fi
