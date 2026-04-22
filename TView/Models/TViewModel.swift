@@ -133,8 +133,10 @@ class TViewModel: ObservableObject {
     @Published var selectedTab = 0
     @Published var isStreaming = false
     @Published var streamingState: StreamingState = .disconnected
-    @Published var serverURL: String = ""
-    @Published var localURL: String = ""
+    @Published var serverURL: String = ""      // 핫스팟 or 최우선 IP
+    @Published var wifiURL: String = ""        // WiFi IP (별도 표시)
+    @Published var localURL: String = ""       // mDNS .local
+    @Published var serverReachable: Bool? = nil // nil=미확인, true=OK, false=실패
     @Published var errorMessage: String? = nil
 
     // MARK: - 설정 (UserDefaults에 자동 저장 + 실시간 반영)
@@ -313,9 +315,13 @@ class TViewModel: ObservableObject {
 
         BackgroundAudioManager.shared.start()
 
-        serverURL = NetworkHelper.streamingURL(useVPN: useVPNIP)
+        let urls = NetworkHelper.allURLs(useVPN: useVPNIP)
+        serverURL = urls.hotspot ?? urls.primary    // 핫스팟 IP 우선
+        wifiURL   = (urls.wifi != urls.hotspot) ? (urls.wifi ?? "") : ""
         localURL  = NetworkHelper.localURL()
         streamingState = .streaming
+        serverReachable = nil
+        checkServerReachability()
     }
 
     private func stopStreaming() {
@@ -327,7 +333,26 @@ class TViewModel: ObservableObject {
         isStreaming = false
         streamingState = .disconnected
         serverURL = ""
+        wifiURL = ""
         localURL = ""
+        serverReachable = nil
+    }
+
+    /// 서버가 실제로 응답하는지 localhost로 자가진단
+    private func checkServerReachability() {
+        Task {
+            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8초 후 확인
+            guard isStreaming else { return }
+            let testURL = URL(string: "http://127.0.0.1:\(StreamingServer.port)/status")!
+            do {
+                let (data, resp) = try await URLSession.shared.data(from: testURL)
+                let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+                        && String(data: data, encoding: .utf8) == "streaming"
+                serverReachable = ok
+            } catch {
+                serverReachable = false
+            }
+        }
     }
 
     // MARK: - 품질 동기화

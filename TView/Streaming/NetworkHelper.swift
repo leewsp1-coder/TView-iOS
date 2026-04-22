@@ -4,35 +4,55 @@ import Darwin
 /// 네트워크 인터페이스 IP 주소 감지 유틸리티
 enum NetworkHelper {
 
-    /// Tesla 브라우저에서 접속할 IP 기반 URL
+    struct ConnectionURLs {
+        /// 핫스팟 URL (Tesla 접속용) — 핫스팟이 켜져 있을 때만 존재
+        let hotspot: String?
+        /// WiFi URL — WiFi에 연결돼 있을 때만 존재
+        let wifi: String?
+        /// VPN URL — VPN 활성 시만 존재
+        let vpn: String?
+
+        /// Tesla 연결에 권장하는 최우선 URL
+        var primary: String {
+            hotspot ?? wifi ?? vpn ?? "http://172.20.10.1:\(StreamingServer.port)"
+        }
+    }
+
+    /// 현재 활성 인터페이스 별 연결 URL 일괄 반환
+    static func allURLs(useVPN: Bool = false) -> ConnectionURLs {
+        let port = StreamingServer.port
+
+        var vpnURL: String? = nil
+        if useVPN {
+            for i in 0...4 {
+                if let ip = ipAddress(for: "utun\(i)") {
+                    vpnURL = "http://\(ip):\(port)"; break
+                }
+            }
+        }
+
+        let hotspotURL = ipAddress(for: "bridge100").map { "http://\($0):\(port)" }
+        let wifiURL    = (ipAddress(for: "en0") ?? ipAddress(for: "en1"))
+                            .map { "http://\($0):\(port)" }
+
+        return ConnectionURLs(hotspot: hotspotURL, wifi: wifiURL, vpn: vpnURL)
+    }
+
+    /// Tesla 브라우저에서 접속할 IP 기반 URL (기존 호환)
     static func streamingURL(useVPN: Bool = false) -> String {
-        "http://\(streamingIP(useVPN: useVPN)):\(StreamingServer.port)"
+        allURLs(useVPN: useVPN).primary
     }
 
     /// mDNS 기반 로컬 URL (DeviceName.local:8080)
-    /// - Tesla 브라우저(Chromium)에서 mDNS 주소 지원
     static func localURL() -> String {
         "http://\(StreamingServer.localHostname):\(StreamingServer.port)"
     }
 
     /// 현재 활성 네트워크 인터페이스에서 IP 주소 반환
     static func streamingIP(useVPN: Bool = false) -> String {
-        // VPN 모드: utun 인터페이스에서 IP 탐색 (WireGuard, OpenVPN 등)
-        if useVPN {
-            for i in 0...4 {
-                if let ip = ipAddress(for: "utun\(i)") {
-                    return ip
-                }
-            }
-        }
-        // Personal Hotspot 인터페이스 우선 (bridge100) → 항상 172.20.10.1
-        if let ip = ipAddress(for: "bridge100") { return ip }
-        // Wi-Fi (en0)
-        if let ip = ipAddress(for: "en0") { return ip }
-        // 시뮬레이터 / 기타 Wi-Fi
-        if let ip = ipAddress(for: "en1") { return ip }
-        // Personal Hotspot 기본 IP
-        return "172.20.10.1"
+        allURLs(useVPN: useVPN).primary
+            .replacingOccurrences(of: "http://", with: "")
+            .components(separatedBy: ":").first ?? "172.20.10.1"
     }
 
     /// 특정 네트워크 인터페이스의 IPv4 주소 반환

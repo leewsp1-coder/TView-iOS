@@ -102,6 +102,8 @@ struct MainView: View {
                     .font(.headline)
                     .foregroundStyle(.green)
                 Spacer()
+                // 서버 자가진단 결과
+                serverStatusBadge
             }
 
             Divider()
@@ -112,12 +114,16 @@ struct MainView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                // IP 주소 URL
-                urlRow(label: "IP", url: viewModel.serverURL)
+                // 핫스팟 IP (Tesla용)
+                if !viewModel.serverURL.isEmpty {
+                    urlRow(label: "핫스팟", url: viewModel.serverURL,
+                           note: "Tesla 연결 시 사용")
+                }
 
-                // mDNS .local URL (더 기억하기 쉬운 주소)
-                if !viewModel.localURL.isEmpty {
-                    urlRow(label: "로컬", url: viewModel.localURL)
+                // WiFi IP (같은 WiFi 기기 테스트용)
+                if !viewModel.wifiURL.isEmpty {
+                    urlRow(label: "WiFi", url: viewModel.wifiURL,
+                           note: "같은 WiFi 기기에서 테스트")
                 }
             }
 
@@ -140,6 +146,23 @@ struct MainView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var serverStatusBadge: some View {
+        switch viewModel.serverReachable {
+        case nil:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text("확인 중").font(.caption2).foregroundStyle(.secondary)
+            }
+        case true:
+            Label("서버 정상", systemImage: "checkmark.circle.fill")
+                .font(.caption2).foregroundStyle(.green)
+        case false:
+            Label("서버 오류", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2).foregroundStyle(.red)
+        }
     }
 
     private var qualityPicker: some View {
@@ -244,27 +267,35 @@ struct MainView: View {
         .padding(.horizontal)
     }
 
-    private func urlRow(label: String, url: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .leading)
+    private func urlRow(label: String, url: String, note: String = "") -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label)
+                    .font(.caption2.bold())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 40, alignment: .leading)
 
-            Text(url)
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                Text(url)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
 
-            Spacer()
+                Spacer()
 
-            Button {
-                UIPasteboard.general.string = url
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.caption)
-                    .foregroundStyle(.blue)
+                Button {
+                    UIPasteboard.general.string = url
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
+            }
+            if !note.isEmpty {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 44)
             }
         }
         .padding(8)

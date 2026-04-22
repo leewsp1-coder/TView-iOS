@@ -173,25 +173,72 @@ struct SettingsView: View {
 struct CameraURLEditorView: View {
     @ObservedObject var cameraUpdater: CameraDataUpdater
     @Environment(\.dismiss) private var dismiss
+    @State private var editingURL = ""
+    @State private var isEditing = false
+
+    /// URL을 "https://abc...eras.json" 형태로 축약
+    private var maskedURL: String {
+        let url = cameraUpdater.downloadURL
+        guard url.count > 36 else { return url }
+        let prefix = String(url.prefix(18))
+        let suffix = String(url.suffix(12))
+        return "\(prefix)...\(suffix)"
+    }
 
     var body: some View {
         List {
+            // 현재 경로 (축약 표시)
             Section {
-                TextField("https://example.com/SpeedCameras.json",
-                          text: $cameraUpdater.downloadURL)
+                HStack {
+                    Text(maskedURL)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button(isEditing ? "취소" : "변경") {
+                        if isEditing {
+                            isEditing = false
+                            editingURL = ""
+                        } else {
+                            editingURL = ""
+                            isEditing = true
+                        }
+                    }
                     .font(.footnote)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.done)
+                }
             } header: {
-                Text("JSON URL")
-            } footer: {
-                Text("SpeedCameras.json 형식의 URL을 입력하세요.\n형식: {\"cameras\":[{\"lat\":37.5,\"lng\":127.0,\"limit\":60,\"type\":\"고정식\"}]}")
+                Text("현재 경로")
+            }
+
+            // 새 URL 입력 (편집 모드일 때만 표시)
+            if isEditing {
+                Section {
+                    TextField("https://example.com/SpeedCameras.json",
+                              text: $editingURL)
+                        .font(.footnote)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            applyIfValid()
+                        }
+
+                    Button("적용") {
+                        applyIfValid()
+                    }
+                    .disabled(editingURL.trimmingCharacters(in: .whitespaces).isEmpty)
+                } header: {
+                    Text("새 URL 입력")
+                } footer: {
+                    Text("SpeedCameras.json 형식의 URL을 입력 후 적용하세요.")
+                }
             }
 
             Section {
                 Button("기본값으로 초기화") {
                     cameraUpdater.downloadURL = CameraDataUpdater.defaultURL
+                    isEditing = false
+                    editingURL = ""
                 }
                 .foregroundStyle(.red)
             } footer: {
@@ -200,6 +247,14 @@ struct CameraURLEditorView: View {
         }
         .navigationTitle("데이터 소스 경로")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func applyIfValid() {
+        let trimmed = editingURL.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, URL(string: trimmed) != nil else { return }
+        cameraUpdater.downloadURL = trimmed
+        isEditing = false
+        editingURL = ""
     }
 }
 
