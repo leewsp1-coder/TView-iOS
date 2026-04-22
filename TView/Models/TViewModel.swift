@@ -230,6 +230,19 @@ class TViewModel: ObservableObject {
         setupDrivingGuard()
         setupThermalManagement()
         StreamingBridge.shared.viewModel = self
+        autoUpdateCamerasIfNeeded()
+    }
+
+    /// 앱 최초 설치 후 Documents에 캐시 파일이 없으면 GitHub에서 자동 다운로드
+    private func autoUpdateCamerasIfNeeded() {
+        let docsURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("SpeedCameras.json")
+        guard let docsURL, !FileManager.default.fileExists(atPath: docsURL.path) else { return }
+        Task {
+            cameraDataUpdater.download(into: safeDrivingGuard.cameraManager)
+        }
     }
 
     private func setupCapture() {

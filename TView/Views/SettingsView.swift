@@ -112,13 +112,11 @@ struct SettingsView: View {
                             )
                     }
 
-                    // 데이터 소스 URL (고급 — 기본값 설정 후 숨김)
-                    DisclosureGroup("데이터 소스 URL (고급)") {
-                        TextField("https://example.com/SpeedCameras.json",
-                                  text: $cameraUpdater.downloadURL)
-                            .font(.footnote)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
+                    // 데이터 소스 URL (고급 — 별도 화면에서 수정)
+                    NavigationLink {
+                        CameraURLEditorView(cameraUpdater: cameraUpdater)
+                    } label: {
+                        Label("데이터 소스 경로 (고급)", systemImage: "link")
                     }
                 } header: {
                     Text("단속 카메라 데이터")
@@ -167,6 +165,41 @@ struct SettingsView: View {
             .navigationTitle("설정")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+// MARK: - 데이터 소스 URL 편집 화면
+
+struct CameraURLEditorView: View {
+    @ObservedObject var cameraUpdater: CameraDataUpdater
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section {
+                TextField("https://example.com/SpeedCameras.json",
+                          text: $cameraUpdater.downloadURL)
+                    .font(.footnote)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.done)
+            } header: {
+                Text("JSON URL")
+            } footer: {
+                Text("SpeedCameras.json 형식의 URL을 입력하세요.\n형식: {\"cameras\":[{\"lat\":37.5,\"lng\":127.0,\"limit\":60,\"type\":\"고정식\"}]}")
+            }
+
+            Section {
+                Button("기본값으로 초기화") {
+                    cameraUpdater.downloadURL = CameraDataUpdater.defaultURL
+                }
+                .foregroundStyle(.red)
+            } footer: {
+                Text("기본값: GitHub 저장소의 공공데이터 기반 카메라 데이터")
+            }
+        }
+        .navigationTitle("데이터 소스 경로")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
